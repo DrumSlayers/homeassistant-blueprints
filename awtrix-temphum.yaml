@@ -1,0 +1,68 @@
+blueprint:
+  name: AWTRIX Temp & Humidity
+  description: >
+    This blueprint will show Temperature and Humidity from Thermometer source
+    
+  domain: automation
+  input:
+    awtrix:
+      name: AWTRIX Device
+      description: Select the Awtrix light device
+      selector:
+        device:
+          integration: mqtt
+          manufacturer: Blueforcer
+          model: AWTRIX Light
+          multiple: true
+    temp:
+      name: Temperature sensor
+      description: A sensor providing temperature in raw data (°c)
+      selector:
+        entity:
+          device_class: temperature
+          multiple: false
+    hum:
+      name: Humidity sensor
+      description: A sensor providing % of humidity
+      selector:
+        entity:
+          device_class: humidity
+          multiple: false
+mode: single
+variables:
+  device_ids: !input awtrix
+  devices_topics: >-
+    {%- macro get_device_topic(device_id) %}
+    {{ states((device_entities(device_id) | select('search','device_topic') | list)[0]) }}
+    {%- endmacro %}
+    
+    {%- set ns = namespace(devices=[]) %}
+    {%- for device_id in device_ids %}
+      {%- set device=get_device_topic(device_id)|replace(' ','') %}
+      {% set ns.devices = ns.devices + [ device ~ '/custom/temp_hum'] %}
+    {%- endfor %}
+    {{ ns.devices }}
+  temp_sensor: !input temp
+  temp_extract: >-
+    {{ states[temp_sensor].state }}
+  hum_sensor: !input hum
+  hum_extract: >-
+    {{ states[hum_sensor].state }}
+  payload: >-
+    [{"icon":"{{ 5836 }}", "text": "{{ temp_extract }} °c",  "color": "#FFFFFF"},{"icon":"{{ 2423 }}", "text": "{{ hum_extract }} %",  "color": "#FFFFFF"}]
+
+trigger:
+  - platform: time_pattern
+    minutes: "/1"
+
+action:
+  - repeat:
+      for_each: "{{ devices_topics }}"
+      sequence:
+        - service: mqtt.publish
+          data:
+            qos: 0
+            retain: false
+            topic: "{{ repeat.item }}"
+            payload: >
+              {{ payload }}

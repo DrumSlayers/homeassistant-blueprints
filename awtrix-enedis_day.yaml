@@ -1,0 +1,68 @@
+blueprint:
+  name: AWTRIX Linky
+  description: >
+    This blueprint will show linky power consumption
+    
+  domain: automation
+  input:
+    awtrix:
+      name: AWTRIX Device
+      description: Select the Awtrix light device
+      selector:
+        device:
+          integration: mqtt
+          manufacturer: Blueforcer
+          model: AWTRIX Light
+          multiple: true
+    powcon_daily:
+      name: Power Consumption of the day
+      description: A sensor providing kWh of the day
+      selector:
+        entity:
+          device_class: energy
+          multiple: false
+    powcost_daily:
+      name: Power Consumption Costs
+      description: A sensor providing € of consumption of the day
+      selector:
+        entity:
+          device_class: monetary
+          multiple: false
+mode: single
+variables:
+  device_ids: !input awtrix
+  devices_topics: >-
+    {%- macro get_device_topic(device_id) %}
+    {{ states((device_entities(device_id) | select('search','device_topic') | list)[0]) }}
+    {%- endmacro %}
+    
+    {%- set ns = namespace(devices=[]) %}
+    {%- for device_id in device_ids %}
+      {%- set device=get_device_topic(device_id)|replace(' ','') %}
+      {% set ns.devices = ns.devices + [ device ~ '/custom/enedis_day'] %}
+    {%- endfor %}
+    {{ ns.devices }}
+  powcon_sensor: !input powcon_daily
+  powcon: >-
+    {{ states[powcon_sensor].state }}
+  powcost_sensor: !input powcost_daily
+  powcost: >-
+    {{ states[powcost_sensor].state }}
+  payload: >-
+    [{"icon":"{{ 42453 }}", "text": "{{ powcon }} kWh",  "color": "#FFFFFF"},{"icon":"{{ 53070 }}", "text": "{{ powcost }} €",  "color": "#FFFFFF"}]
+
+trigger:
+  - platform: time_pattern
+    minutes: "/1"
+
+action:
+  - repeat:
+      for_each: "{{ devices_topics }}"
+      sequence:
+        - service: mqtt.publish
+          data:
+            qos: 0
+            retain: false
+            topic: "{{ repeat.item }}"
+            payload: >
+              {{ payload }}

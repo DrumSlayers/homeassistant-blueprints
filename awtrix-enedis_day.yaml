@@ -19,14 +19,14 @@ blueprint:
       description: A sensor providing kWh of the day
       selector:
         entity:
-          device_class: energy
+#          device_class: energy
           multiple: false
     powcost_daily:
       name: Power Consumption Costs
       description: A sensor providing € of consumption of the day
       selector:
         entity:
-          device_class: monetary
+ #         device_class: monetary
           multiple: false
 mode: single
 variables:
@@ -49,7 +49,7 @@ variables:
   powcost: >-
     {{ states[powcost_sensor].state }}
   payload: >-
-    [{"icon":"{{ 42453 }}", "text": "{{ powcon }} kWh",  "color": "#FFFFFF"},{"icon":"{{ 53070 }}", "text": "{{ powcost }} €",  "color": "#FFFFFF"}]
+    [{"icon":"{{ 42453 }}", "text": "{{ powcon }}",  "color": "#FFFFFF"},{"icon":"{{ 53070 }}", "text": "{{ powcost }}",  "color": "#FFFFFF"}]
 
 trigger:
   - platform: time_pattern

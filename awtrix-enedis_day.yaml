@@ -15,19 +15,19 @@ blueprint:
           model: AWTRIX Light
           multiple: true
     powcon_daily:
-      name: Power Consumption of the day
-      description: A sensor providing kWh of the day
+      name: myElectricalData Entity 
+      description: A sensor providing that provide consumption and cost of the last day
       selector:
         entity:
-#          device_class: energy
+          device_class: energy
           multiple: false
-    powcost_daily:
-      name: Power Consumption Costs
-      description: A sensor providing € of consumption of the day
-      selector:
-        entity:
- #         device_class: monetary
-          multiple: false
+#    powcost_daily:
+#      name: Power Consumption Costs
+#      description: A sensor providing € of consumption of the day
+#      selector:
+#        entity:
+#          device_class: monetary
+#          multiple: false
 mode: single
 variables:
   device_ids: !input awtrix
@@ -45,9 +45,9 @@ variables:
   powcon_sensor: !input powcon_daily
   powcon: >-
     {{ states[powcon_sensor].state }}
-  powcost_sensor: !input powcost_daily
+#  powcost_sensor: !input powcost_daily
   powcost: >-
-    {{ states[powcost_sensor].state }}
+    {{ state_attr(powcon_sensor, 'daily_cost') }}
   payload: >-
     [{"icon":"{{ 42453 }}", "text": "{{ powcon }}",  "color": "#FFFFFF"},{"icon":"{{ 53070 }}", "text": "{{ powcost }}",  "color": "#FFFFFF"}]
 

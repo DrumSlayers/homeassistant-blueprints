@@ -49,7 +49,7 @@ variables:
   powcost: >-
     {{ state_attr(powcon_sensor, 'daily_cost') }}
   payload: >-
-    [{"icon":"{{ 42453 }}", "text": "{{ powcon }}",  "color": "#FFFFFF"},{"icon":"{{ 53070 }}", "text": "{{ powcost }}",  "color": "#FFFFFF"}]
+    [{"icon":"{{ 42453 }}", "text": "{{ powcon }}"},{"icon":"{{ 53070 }}", "text": "{{ powcost }}"}]
 
 trigger:
   - platform: time_pattern

@@ -49,7 +49,7 @@ variables:
   hum_extract: >-
     {{ states[hum_sensor].state }}
   payload: >-
-    [{"icon":"{{ 5836 }}", "text": "{{ temp_extract }}",  "color": "#FFFFFF"},{"icon":"{{ 2423 }}", "text": "{{ hum_extract }}",  "color": "#FFFFFF"}]
+    [{"icon":"{{ 5836 }}", "text": "{{ temp_extract }}"},{"icon":"{{ 2423 }}", "text": "{{ hum_extract }}"}]
 
 trigger:
   - platform: time_pattern

@@ -1,0 +1,255 @@
+blueprint:
+  name: AWTRIX Naolib Transport Next Tram/Bus Display
+  description: |
+    # AWTRIX Naolib Transport Next Tram/Bus Display
+
+    Displays Naolib (Nantes) waiting times for a specific stop and for each lines you want on your Awtrix device.
+
+    **Features:**
+    *   🚌 **Multi-Page:** Cycles through lines automatically (one page per line).
+    *   ⏱️ **Smart Filter:** Shows only the **next** bus for each destination.
+    *   🌈 **Visual Alerts:** Rainbow text when bus is "Proche" (close).
+    *   ⚠️ **Stale Data:** Shows a red bar if data isn't updated for 2 minutes.
+    *   🚊 **Per Line Icon:** JSON Configuration to set a specific icon for each transport lines/routes.
+
+    ## 📋 How To Setup
+
+    ### 1. Create the Sensor
+    You **must** add a `command_line` sensor to your `configuration.yaml`.
+    Replace `HAUB` with your stop code (find it via https://open.tan.fr/ewp/arrets.json/).
+
+    ```yaml
+    command_line:
+      - sensor:
+          name: Naolib Haubans
+          unique_id: naolib_haubans
+          # Fetch JSON and transform array to object with keys "0", "1", etc.
+          command: 'curl -s https://open.tan.fr/ewp/tempsattente.json/HAUB | python3 -c "import sys, json; print(json.dumps({str(i):x for i,x in enumerate(json.load(sys.stdin))}))"'
+          value_template: "OK"
+          scan_interval: 60
+          json_attributes:
+            - "0"
+            - "1"
+            - "2"
+            - "3"
+            - "4"
+            - "5"
+            - "6"
+            - "7"
+            - "8"
+            - "9"
+    ```
+
+    ### 2. Reload & Configure
+    1. Reload YAML configuration in Home Assistant.
+    2. Create this automation from the blueprint.
+    3. Select the sensor (e.g., `sensor.naolib_haubans`).
+    4. Configure Line Icons (see below).
+
+    ### 3. Icon Configuration (JSON)
+    In the "Line Icons" field, map your transport lines to Awtrix Icon IDs.
+
+    **Example:**
+    ```json
+    {
+      "5": "ligne-5",
+      "C3": "ligne-c3",
+      "default": "1309"
+    }
+    ```
+    I've joined the two icons i use for reference in the icon/ folder
+
+  domain: automation
+  input:
+    awtrix:
+      name: AWTRIX Device
+      description: Select the Awtrix light(s)
+      selector:
+        device:
+          filter:
+            integration: mqtt
+            manufacturer: Blueforcer
+            model: AWTRIX 3
+          multiple: true
+    tan_sensor:
+      name: Naolib Sensor
+      description: The Command Line sensor (e.g., sensor.naolib_haubans).
+      selector:
+        entity:
+          filter:
+            domain: sensor
+    station_name:
+      name: Station Name
+      description: Optional station name to prefix (e.g. "Haubans").
+      default: ""
+      selector:
+        text:
+    lines:
+      name: Lines to Show
+      description: Comma separated list of line numbers to filter (e.g., "5, C3"). Leave empty to show all.
+      default: ""
+      selector:
+        text:
+    line_icons:
+      name: Line Icons (JSON)
+      description: >
+        Map line numbers to Awtrix Icon IDs. Must be valid JSON.
+        Use "default" for lines not specified.
+      default: '{"default": "1309"}'
+      selector:
+        text:
+          multiline: true
+    app_name:
+      name: App Topic Name
+      description: The single topic name for this group of pages.
+      default: "naolib"
+      selector:
+        text:
+    duration:
+      name: Duration
+      description: How long to show each page/line (seconds).
+      default: 10
+      selector:
+        number:
+          min: 1
+          max: 60
+          unit_of_measurement: "sec"
+    scroll_speed:
+      name: Scroll Speed
+      description: Speed of the scrolling text (Lower is faster).
+      default: 100
+      selector:
+        number:
+          min: 20
+          max: 200
+          mode: slider
+
+mode: restart
+variables:
+  device_ids: !input awtrix
+  app_topic_name: !input app_name
+
+  # Devices logic
+  device_topics: >-
+    {%- macro get_device_topic(device_id) %}
+    {{ states((device_entities(device_id) | select('search','device_topic') | list)[0]) }}
+    {%- endmacro %}
+    {%- set ns = namespace(devices=[]) %}
+    {%- for device_id in device_ids %}
+      {%- set device=get_device_topic(device_id)|replace(' ','') %}
+      {% set ns.devices = ns.devices + [device] %}
+    {%- endfor %}
+    {{ ns.devices | reject('match','unavailable') | list}}
+
+  tan_sensor: !input tan_sensor
+  station_name: !input station_name
+  lines_input: !input lines
+  icons_json: !input line_icons
+  duration: !input duration
+  scroll_speed: !input scroll_speed
+
+  # ---------------------------------------------------------
+  # Logic: Group Buses by Line -> JSON Array of Objects
+  # ---------------------------------------------------------
+  payload_array: >-
+    {% set icon_map = icons_json | from_json %}
+    {% set lines_filter = lines_input.split(',') | map('trim') | list %}
+
+    {# Collect all valid bus objects from attributes #}
+    {% set ns = namespace(all_buses=[]) %}
+    {% for i in range(0, 10) %}
+      {% set bus = state_attr(tan_sensor, i | string) %}
+      {% if bus %}
+        {% set ns.all_buses = ns.all_buses + [bus] %}
+      {% endif %}
+    {% endfor %}
+
+    {# Identify unique lines present #}
+    {% set present_lines = ns.all_buses | map(attribute='ligne.numLigne') | unique | list %}
+
+    {% set output = namespace(pages=[]) %}
+
+    {# Loop through each unique line and build a page object #}
+    {% for line_num in present_lines %}
+      {# Check if line is allowed by filter #}
+      {% if (lines_input | length == 0) or (line_num in lines_filter) %}
+
+        {# Get icon #}
+        {% set icon_id = icon_map.get(line_num, icon_map.get('default', '1309')) %}
+
+        {# Check if any bus on this line is "proche" #}
+        {% set is_proche = namespace(val=false) %}
+
+        {# Build text for this line (Unique Terminus only) #}
+        {% set line_texts = namespace(list=[], seen_terminuses=[]) %}
+        {% for bus in ns.all_buses %}
+           {% if bus.ligne.numLigne == line_num %}
+
+              {# Skip if time is empty #}
+              {% if bus.temps | length > 0 %}
+
+                  {# Only add if we haven't seen this destination yet (Next bus only) #}
+                  {% if bus.terminus not in line_texts.seen_terminuses %}
+
+                      {# Check close status #}
+                      {% if bus.temps | lower == 'proche' %}
+                         {% set is_proche.val = true %}
+                         {% set display_time = "PROCHE" %}
+                      {% else %}
+                         {% set display_time = bus.temps %}
+                      {% endif %}
+
+                      {% set txt = bus.terminus ~ ": " ~ display_time %}
+                      {% set line_texts.list = line_texts.list + [txt] %}
+                      {% set line_texts.seen_terminuses = line_texts.seen_terminuses + [bus.terminus] %}
+
+                  {% endif %}
+              {% endif %}
+           {% endif %}
+        {% endfor %}
+
+        {# If we found any valid buses for this line, add page #}
+        {% if line_texts.list | length > 0 %}
+            {# Prepend Station Name if exists #}
+            {% set joined_text = line_texts.list | join('  |  ') %}
+            {% if station_name | length > 0 %}
+               {% set final_text = station_name ~ ": " ~ joined_text %}
+            {% else %}
+               {% set final_text = joined_text %}
+            {% endif %}
+
+            {# Create the Page Object with Lifetime #}
+            {% set page = {
+                "text": final_text,
+                "icon": icon_id,
+                "duration": duration,
+                "pushIcon": 0,
+                "rainbow": is_proche.val,
+                "scrollSpeed": scroll_speed,
+                "textCase": 2,
+                "lifetime": 120,
+                "lifetimeMode": 1
+            } %}
+            {% set output.pages = output.pages + [page] %}
+        {% endif %}
+
+      {% endif %}
+    {% endfor %}
+
+    {# Return the list of pages #}
+    {{ output.pages }}
+
+trigger:
+  - platform: state
+    entity_id: !input tan_sensor
+  - platform: time_pattern
+    minutes: "/1"
+
+action:
+  - repeat:
+      for_each: "{{ device_topics }}"
+      sequence:
+        - action: mqtt.publish
+          data:
+            topic: "{{ repeat.item }}/custom/{{ app_topic_name }}"
+            payload: "{{ payload_array | to_json }}"
